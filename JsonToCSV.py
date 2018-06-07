@@ -31,13 +31,13 @@ for i in range(3):
     node["LEye"+coord]=[]
     node["REar"+coord]=[]
     node["LEar"+coord]=[]
-    node["Background"+coord]=[]
 
 for e in os.listdir('.'):
     if e.endswith('.json'):
+        print(e)
         data = json.load(open(e))
-        pprint(data["maps"][0]["id"])
-        nodes_raw=data["maps"][0]["id"]
+        #pprint(data["maps"][0]["id"])
+        nodes_raw=data["people"][0]["pose_keypoints_2d"]
 
         for i in range(3):
             coord=''
@@ -65,10 +65,10 @@ for e in os.listdir('.'):
             node["LEye"+coord].append(nodes_raw[45+i])
             node["REar"+coord].append(nodes_raw[48+i])
             node["LEar"+coord].append(nodes_raw[51+i])
-            node["Background"+coord].append(nodes_raw[54+i])
-        
-        pprint(node)
+            
         
         
+        
+
 df=pd.DataFrame(node)
 df.to_csv('Data.csv',sep=';')
