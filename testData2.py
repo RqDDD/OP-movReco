@@ -12,9 +12,17 @@ from keras.layers import LSTM
 from math import sqrt
 import matplotlib
 import numpy as np
+import os
+
+import transformation
 
 
 
+coord_xy = ['Nose_x', 'Neck_x', 'RShoulder_x', 'RElbow_x', 'RWrist_x', 'LShoulder_x', 'LElbow_x',
+ 'LWrist_x', 'RHip_x', 'RKnee_x', 'RAnkle_x', 'LHip_x', 'LKnee_x', 'LAnkle_x', 'REye_x',
+ 'LEye_x', 'REar_x', 'LEar_x', 'Nose_y', 'Neck_y', 'RShoulder_y', 'RElbow_y', 'RWrist_y',
+ 'LShoulder_y', 'LElbow_y', 'LWrist_y', 'RHip_y', 'RKnee_y', 'RAnkle_y', 'LHip_y', 'LKnee_y',
+ 'LAnkle_y', 'REye_y', 'LEye_y', 'REar_y', 'LEar_y']
 
  
  
@@ -22,13 +30,20 @@ import numpy as np
 def timeseries_to_supervised(data, lag=1, interval = 1):
         data = DataFrame(data)
         inte = [[] for a in range(lag)]
+        liste_drop = []
         #print(data)
         for a in data.columns[1:]: # first column is label
-                data[a] = difference(data[a], interval)
-                for b in range(1, lag+1):
-                        inte[b-1].append(data[a].shift(b))
+                if a not in coord_xy:
+                        liste_drop.append(a)
+                else:
+                        data[a] = difference(data[a], interval)
+                        for b in range(1, lag+1):
+                                inte[b-1].append(data[a].shift(b))
         #print(len(inte[0]), len(inte[1]), len(data.columns[1:]), len(inte), lag)
-                        
+        #print(data)
+        data = data.drop(liste_drop, axis=1)
+##        print(liste_drop)
+##        print(data.columns[1:])
         # A loop again ; good order ;  not well written
         nbre_car = len(data.columns[1:])
         for a in range(lag): # first column index
@@ -36,7 +51,7 @@ def timeseries_to_supervised(data, lag=1, interval = 1):
                         #print(a,b)
                         data[str(data.columns[b+1])+'timestep_'+str(a+1)] = inte[a][b]
 
-        print(data)
+        #print(data)
         return data
  
 # create a differenced series
@@ -87,6 +102,9 @@ def fit_lstm(X_train, y_train, batch_size, nb_epoch, neurons, timesteps):
 # make a one-step forecast
 def forecast_lstm(model, batch_size, X):
         X = X.reshape(1, X.shape[0], X.shape[1])
+        model_b = model.copy()
+        old_weights = model.get_weights()
+        new_model.set_weights(old_weights)
         yhat = model.predict(X, batch_size=batch_size)
         return yhat
 
@@ -94,12 +112,6 @@ def score(yt, prediction):
         accuracy = 0
         n = len(yt)
         for a in range(n):
-##                print("EXACT")
-##                print(indMax(yt[a]))
-##                print(yt[a], "\n")
-##                print("PRED")
-##                print(indMax(prediction[a][0]))
-##                print(prediction[a][0], "\n", "\n")
                 if indMax(yt[a]) == indMax(prediction[a][0]):
                         accuracy += 1
         accuracy = accuracy/n*100
@@ -110,16 +122,13 @@ def indMax(liste):
         ind = 0
         for a in range(1, len(liste)):
                 if liste[a] > maxi:
-                        mini = liste[a]
+                        maxi = liste[a]
                         ind = a
         return(ind)
         
 # run a repeated experiment
 def experiment(repeats, series, timesteps, interval = 1):
-        #print(raw_values)
-        #diff_values = difference(raw_values, 1)
-        #print(diff_values)
-        # transform data to be supervised learning
+
         inte1 = timeseries_to_supervised(series[0], timesteps)
         inte2 = inte1.values[timesteps:-interval,:]
         supervised_values = inte2
@@ -127,9 +136,6 @@ def experiment(repeats, series, timesteps, interval = 1):
                 inte1 = timeseries_to_supervised(series[a], timesteps)
                 inte2 = inte1.values[timesteps:-interval,:]
                 supervised_values = np.concatenate((supervised_values, inte2))
-
-
-        print(supervised_values)
 
 
 
@@ -146,10 +152,19 @@ def experiment(repeats, series, timesteps, interval = 1):
         #train, test = supervised_values[0:nbre_aprent,:], supervised_values[nbre_aprent:-interval,:]
         train = np.array([supervised_values[a] for a in liste_alea[0:nbre_aprent]])
         test = np.array([supervised_values[a] for a in liste_alea[nbre_aprent:]])
-        #print(train)
+        print(train)
+
+        #Add data taking account of depth
 
 
+        #Add data with noise
+        train = transformation.addNoise(train, 300, 6)
+        np.random.shuffle(train)
+
+        
+        
         X, label = train[:, 1:], train[:, 0]
+
         Xt, labelt = test[:, 1:], test[:, 0]
         # transform the scale of the data
         scaler, X_scaled, Xt_scaled = scale(X, Xt)
@@ -160,38 +175,37 @@ def experiment(repeats, series, timesteps, interval = 1):
         yt = labelt.reshape(len(labelt), 1)
         yt = onehot_encoder.transform(yt)
 
-        X = X.reshape(X.shape[0], timesteps+1, int(X.shape[1]/(timesteps+1))) # attention au timestep ici
-        Xt = Xt.reshape(Xt.shape[0], timesteps+1, int(Xt.shape[1]/(timesteps+1))) # attention au timestep ici
-        #print(train_scaled)
-        #print(scaler)
-        # run experiment
-        #print(X[15])
+        X_scaled = X_scaled.reshape(X.shape[0], timesteps+1, int(X.shape[1]/(timesteps+1))) # attention au timestep ici
+        Xt_scaled = Xt_scaled.reshape(Xt.shape[0], timesteps+1, int(Xt.shape[1]/(timesteps+1))) # attention au timestep ici
+
         error_scores = list()
         for r in range(repeats):
                 # fit the base model
                 global lstm_model
-                lstm_model = fit_lstm(X, y, 1, 200, 100, timesteps)
+                lstm_model = fit_lstm(X_scaled, y, 1, 10, 100, timesteps)
                 # forecast test dataset
                 global predictions
                 predictions = list()
                 for i in range(len(Xt)):
                         # predict
-                        yhat = forecast_lstm(lstm_model, 1, Xt[i])
+                        yhat = forecast_lstm(lstm_model, 1, Xt_scaled[i])
                         # store forecast
                         predictions.append(yhat)
                 # report performance
-                print(yt)
-                print(predictions)
+                for a in range(len(yt)):
+                        print(yt[a], predictions[a][0])
+                        print(a)
                 print(" Accuracy : ", score(yt,predictions) )
-                #rmse = sqrt(mean_squared_error(yt, predictions))
-                #print('%d) Test RMSE: %.3f' % (r+1, rmse))
-                #error_scores.append(rmse)
+                
+
         return error_scores
  
 # execute the experiment
-def run(listeChemins): #liste chemins d'apprentissage
+def run(listeChemins, pathwd): #liste chemins d'apprentissage
         # load datasets
         series = []
+        os.chdir(pathwd)
+        
         for a in listeChemins:
                 series.append(read_csv(a))
         #series = read_csv("/home/rqd/Documents/NORMbittrex-BTCUSDT-1d.csv",index_col=0)
@@ -199,19 +213,24 @@ def run(listeChemins): #liste chemins d'apprentissage
         repeats = 1
         results = DataFrame()
         # run experiment
-        timesteps = 2
+        timesteps = 10
         results['results'] = experiment(repeats, series, timesteps)
         # summarize results
         #print(results.describe())
         # save results
         #results.to_csv('experiment_timesteps_1.csv', index=False)
+
+
+
  
  # entry point
-run(['/home/rqd/Documents/StagePortu/DataOpenPosetronq.csv','/home/rqd/Documents/StagePortu/DataOpenPosetronq2.csv'])
+print([e for e in os.listdir('/home/rqd/OPlstm/data_csv')])
+run([e for e in os.listdir('/home/rqd/OPlstm/data_csv')], '/home/rqd/OPlstm/data_csv')
 
 
 
-
+# different batch size training/test
+# https://machinelearningmastery.com/use-different-batch-sizes-training-predicting-python-keras/
 
 
 

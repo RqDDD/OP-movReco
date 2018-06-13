@@ -32,7 +32,7 @@ for i in range(3):
     node["REar"+coord]=[]
     node["LEar"+coord]=[]
 
-for e in os.listdir('.'):
+for e in sorted(os.listdir('.')):
     if e.endswith('.json'):
         print(e)
         data = json.load(open(e))
