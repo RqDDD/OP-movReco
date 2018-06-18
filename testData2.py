@@ -82,30 +82,37 @@ def scale(train, test):
         test = test.reshape(test.shape[0], test.shape[1])
         test_scaled = scaler.transform(test)
         return scaler, train_scaled, test_scaled
- 
+
+def create_model(structLSTM, structForw, batch_size, shape1, shape2):
+        model = Sequential()
+        
+        model.add(LSTM(structLSTM[0], batch_input_shape=(batch_size, shape1, shape2), return_sequences=True, stateful=True))
+        for a in range(len(structLSTM)-1):
+                model.add(LSTM(structLSTM[a+1]))
+                
+        for a in range(len(structForw)-1):
+                model.add(Dense(structForw[a]))
+        model.add(Dense(structForw[-1]))
+        
+        model.compile(loss='mean_squared_error', optimizer='adam', metrics=['accuracy'])
+        return(model)
  
 # fit an LSTM network to training data
-def fit_lstm(X_train, y_train, batch_size, nb_epoch, neurons, timesteps):
+def fit_lstm(X_train, y_train, structLSTM, structForw, batch_size, nb_epoch, timesteps):
+        
+        model = create_model(structLSTM, structForw, batch_size, X_train.shape[1], X_train.shape[2])
 
-        model = Sequential()
-        model.add(LSTM(neurons, batch_input_shape=(batch_size, X_train.shape[1], X_train.shape[2]), return_sequences=True, stateful=True))
-        model.add(LSTM(50))
-        model.add(Dense(10))
-        model.add(Dense(10))
-        model.add(Dense(3))
-        model.compile(loss='mean_squared_error', optimizer='adam')
         for i in range(nb_epoch):
                 model.fit(X_train, y_train, epochs=1, batch_size=batch_size, verbose=0, shuffle=False)
                 model.reset_states()
         return model
  
 # make a one-step forecast
-def forecast_lstm(model, batch_size, X):
+def forecast_lstm(old_weights, structLSTM, structForw, batch_size, X):
         X = X.reshape(1, X.shape[0], X.shape[1])
-        model_b = model.copy()
-        old_weights = model.get_weights()
-        new_model.set_weights(old_weights)
-        yhat = model.predict(X, batch_size=batch_size)
+        model_b = create_model(structLSTM, structForw, batch_size, X.shape[1], X.shape[2])
+        model_b.set_weights(old_weights)
+        yhat = model_b.predict(X, batch_size=batch_size)
         return yhat
 
 def score(yt, prediction):
@@ -158,7 +165,7 @@ def experiment(repeats, series, timesteps, interval = 1):
 
 
         #Add data with noise
-        train = transformation.addNoise(train, 300, 6)
+        train = transformation.addNoise(train, 300, 5)
         np.random.shuffle(train)
 
         
@@ -182,13 +189,17 @@ def experiment(repeats, series, timesteps, interval = 1):
         for r in range(repeats):
                 # fit the base model
                 global lstm_model
-                lstm_model = fit_lstm(X_scaled, y, 1, 10, 100, timesteps)
+                structLSMT = [100,50]
+                structForw = [30,10,3]
+                lstm_model = fit_lstm(X_scaled, y, structLSMT, structForw,  20, 40, timesteps)
+                old_weights = lstm_model.get_weights()
+                
                 # forecast test dataset
                 global predictions
                 predictions = list()
                 for i in range(len(Xt)):
                         # predict
-                        yhat = forecast_lstm(lstm_model, 1, Xt_scaled[i])
+                        yhat = forecast_lstm(old_weights, structLSMT, structForw, 1, Xt_scaled[i])
                         # store forecast
                         predictions.append(yhat)
                 # report performance
