@@ -6,9 +6,11 @@ from pandas import datetime
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import OneHotEncoder
+from sklearn.externals import joblib
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import LSTM
+from keras.layers import Dropout
 from math import sqrt
 import matplotlib
 import numpy as np
@@ -94,46 +96,63 @@ def create_model(structLSTM, structForw, batch_size, shape1, shape2):
         ''' Create partly LSTM model :  structLSTM = [number of neurons in the first layer, in the second,...]
         structForw = [..., ... , number of neurons in the last layer : correspond to the number of class]'''
 
+
         
         model = Sequential()
         # first layer
+        # stateful means memory last at the next batch... not clear enough
         model.add(LSTM(structLSTM[0], batch_input_shape=(batch_size, shape1, shape2), return_sequences=True, stateful=True))
+        #model.add(LSTM(structLSTM[0], batch_input_shape=(batch_size, shape1, shape2), return_sequences=True, stateful=False))
+        model.add(Dropout(0.3))
         
         # add the hidden layer of lstm part
         for a in range(len(structLSTM)-1):
                 model.add(LSTM(structLSTM[a+1]))
+                model.add(Dropout(0.2))
                 
         # add the hidden layer of forward part        
         for a in range(len(structForw)-1):
                 model.add(Dense(structForw[a]))
+                model.add(Dropout(0.2))
 
         # output layer
         model.add(Dense(structForw[-1]))
         
-        model.compile(loss='mean_squared_error', optimizer='adam', metrics=['accuracy'])
+        model.compile(loss='mean_squared_error', optimizer='rmsprop', metrics=['accuracy'])
         return(model)
  
 
 def fit_lstm(X_train, y_train, structLSTM, structForw, batch_size, nb_epoch, timesteps):
 
         ''' fit the network to the training data '''
+
         
+        # we need the number of training sample to be a multiple of batch_size
+        # we consider there is enough data
+        size_x = len(X_train)
+        while size_x%batch_size !=0:
+                X_train = np.delete(X_train, (0), axis=0)
+                y_train = np.delete(y_train, (0), axis=0)
+                size_x = size_x-1
+                
+                
         model = create_model(structLSTM, structForw, batch_size, X_train.shape[1], X_train.shape[2])
 
+        print("\033[92m Learning has begun... \x1b[0m\n\n")
         for i in range(nb_epoch):
-                model.fit(X_train, y_train, epochs=1, batch_size=batch_size, verbose=0, shuffle=False)
+                
+                model.fit(X_train, y_train, epochs=1, batch_size=batch_size, verbose=2, shuffle=False)
                 model.reset_states()
+        print("\033[92mLearning is over ! '\x1b[0m")
         return model
  
 # make a one-step forecast
-def forecast_lstm(old_weights, structLSTM, structForw, batch_size, X):
+def forecast_lstm(model_b, batch_size, X):
 
         ''' forecast output with X as entry. The batch size is potentially different from the one
         used for training'''
         
         X = X.reshape(1, X.shape[0], X.shape[1])
-        model_b = create_model(structLSTM, structForw, batch_size, X.shape[1], X.shape[2])
-        model_b.set_weights(old_weights)
         yhat = model_b.predict(X, batch_size=batch_size)
         return yhat
 
@@ -177,14 +196,14 @@ def experiment(repeats, series, timesteps, interval = 1):
         nbre_aprent = int(len(supervised_values)/100*80)
         train = np.array([supervised_values[a] for a in liste_alea[0:nbre_aprent]])
         test = np.array([supervised_values[a] for a in liste_alea[nbre_aprent:]])
-        print(train)
+        
         
 
         #Add data taking account of depth
 
 
         #Add data with noise
-        train = transformation.addNoise(train, 300, 5)
+        train = transformation.addNoise(train, 10, 10)
 
         # shuffle / to avoid finish training with spoiled data
         np.random.shuffle(train)        
@@ -208,32 +227,45 @@ def experiment(repeats, series, timesteps, interval = 1):
         error_scores = list()
         for r in range(repeats):
                 # fit the base model / test different models on the cloud
-                structLSMT = [100,50]
+                structLSTM = [100,50]
                 structForw = [30,10,3]
-                lstm_model = fit_lstm(X_scaled, y, structLSMT, structForw,  20, 40, timesteps)
+                global lstm_model
+                lstm_model = fit_lstm(X_scaled, y, structLSTM, structForw,  20, 150, timesteps)
                 old_weights = lstm_model.get_weights()
                 
                 # forecast test dataset    
                 predictions = list()
+                print("\033[92mNow testing...  \x1b[0m")
+                batch_size_test = 1
+                model_b = create_model(structLSTM, structForw, batch_size_test, Xt_scaled.shape[1], Xt_scaled.shape[2])
+                model_b.set_weights(old_weights)
                 for i in range(len(Xt)):
                         # predict
-                        yhat = forecast_lstm(old_weights, structLSMT, structForw, 1, Xt_scaled[i])
+                        yhat = forecast_lstm(model_b, batch_size_test, Xt_scaled[i])
                         # store forecast
                         predictions.append(yhat)
                         
                 # report performance
-                for a in range(len(yt)):
-                        print(yt[a], predictions[a][0])
-                        print(a)
-                print(" Accuracy : ", score(yt,predictions) )
+##                for a in range(len(yt)):
+##                        print(yt[a], predictions[a][0])
+##                        print(a)
                 
-
+                print("\033[92mAccuracy : ", score(yt,predictions), "\x1b[0m" )
+                
+        # saving model, saver, timestep and interval
+        lstm_model.save('/home/rqd/OPlstm/mod/my_model.h5')
+        joblib.dump(scaler,"/home/rqd/OPlstm/mod/scaler.save")
+        fichier = open("/home/rqd/OPlstm/mod/tsintr.txt", "w") 
+        tsintr = fichier.write("%(timestep)i;%(interval)i"%{'timestep': timesteps, "interval": interval})
+        fichier.close()
+        
+        
         return error_scores
  
 
 def run(listeChemins, pathwd): #liste chemins d'apprentissage
         
-        ''' Execute the experiment'''
+        ''' Execute the experiment '''
         
         # load datasets
         series = []
@@ -246,7 +278,7 @@ def run(listeChemins, pathwd): #liste chemins d'apprentissage
         # number of repeats / a bit redundants with nb_epoch
         repeats = 1   
 
-        timesteps = 10       
+        timesteps = 6       
         
         experiment(repeats, series, timesteps)
 
