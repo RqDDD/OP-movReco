@@ -15,11 +15,21 @@ from math import sqrt
 import matplotlib
 import numpy as np
 import os
+import argparse
 
 import transformation
 
 
-# Liste of useful column
+parser = argparse.ArgumentParser()
+parser.add_argument("-pe","--pathEntry", type=str, help="Indicate the path where csv containing data labeled are (indicate a folder). Example : /home/usr/entries_csv/  ", default='./data_csv')
+parser.add_argument("-pem","--pathEntryModel", type=str, help="Indicate the path to the model . Example : /home/usr/mod/  ", default='./mod/')
+parser.add_argument("-psm","--pathStoreModel", type=str, help="Indicate the path where model learned are stored. Example : /home/usr/mod/  ", default='./mod/')
+args = parser.parse_args()
+PATH_ENTRY = args.pathEntry
+PATH_MOD_OUTPUT = args.pathStoreModel
+
+
+# Liste of useful column, the others are removed from the training process / here columns about certainty will be removed
 coord_xy = ['Nose_x', 'Neck_x', 'RShoulder_x', 'RElbow_x', 'RWrist_x', 'LShoulder_x', 'LElbow_x',
  'LWrist_x', 'RHip_x', 'RKnee_x', 'RAnkle_x', 'LHip_x', 'LKnee_x', 'LAnkle_x', 'REye_x',
  'LEye_x', 'REar_x', 'LEar_x', 'Nose_y', 'Neck_y', 'RShoulder_y', 'RElbow_y', 'RWrist_y',
@@ -118,7 +128,7 @@ def create_model(structLSTM, structForw, batch_size, shape1, shape2):
         # output layer
         model.add(Dense(structForw[-1]))
         
-        model.compile(loss='mean_squared_error', optimizer='rmsprop', metrics=['accuracy'])
+        model.compile(loss='mean_squared_error', optimizer='adam', metrics=['accuracy'])
         return(model)
  
 
@@ -161,8 +171,9 @@ def score(yt, prediction):
         n = len(yt)
         for a in range(n):
                 if indMax(yt[a]) == indMax(prediction[a][0]):
-                        accuracy += 1
-        accuracy = accuracy/n*100
+                        accuracy = accuracy + 1
+
+        accuracy = float(accuracy)/n*100 # correct for python2.7 with float
         return(accuracy)
 
 def indMax(liste):
@@ -180,6 +191,9 @@ def experiment(repeats, series, timesteps, interval = 1):
         inte1 = shape_data(series[0], timesteps)
         inte2 = inte1.values[timesteps:-interval,:]
         supervised_values = inte2
+
+	# add here code to add a copy of the data with deleted lines / simulate lowering fps
+
         for a in range(1,len(series)):
                 inte1 = shape_data(series[a], timesteps)
                 inte2 = inte1.values[timesteps:-interval,:]
@@ -203,7 +217,7 @@ def experiment(repeats, series, timesteps, interval = 1):
 
 
         #Add data with noise
-        train = transformation.addNoise(train, 10, 10)
+        train = transformation.addNoise(train, 100, 10)
 
         # shuffle / to avoid finish training with spoiled data
         np.random.shuffle(train)        
@@ -221,16 +235,19 @@ def experiment(repeats, series, timesteps, interval = 1):
         yt = labelt.reshape(len(labelt), 1)
         yt = onehot_encoder.transform(yt)
 
+        # number of distinct label/ number of categories / dimension of the output layer
+        nbr_output_layer = len(yt[0])
+
         X_scaled = X_scaled.reshape(X.shape[0], timesteps+1, int(X.shape[1]/(timesteps+1))) # mind the timestep here
         Xt_scaled = Xt_scaled.reshape(Xt.shape[0], timesteps+1, int(Xt.shape[1]/(timesteps+1))) # mind the timestep here
 
         error_scores = list()
         for r in range(repeats):
                 # fit the base model / test different models on the cloud
-                structLSTM = [100,50]
-                structForw = [30,10,3]
+                structLSTM = [100,50]  # first lstm layer with 100 neurons, a second with 50... change as wanted
+                structForw = [30,10,nbr_output_layer] # first forward layer with 30 neurons, a second with 10 and the output layer corresponding to the number of categories... change as wanted
                 global lstm_model
-                lstm_model = fit_lstm(X_scaled, y, structLSTM, structForw,  20, 150, timesteps)
+                lstm_model = fit_lstm(X_scaled, y, structLSTM, structForw,  20, 50, timesteps)
                 old_weights = lstm_model.get_weights()
                 
                 # forecast test dataset    
@@ -250,12 +267,13 @@ def experiment(repeats, series, timesteps, interval = 1):
 ##                        print(yt[a], predictions[a][0])
 ##                        print(a)
                 
-                print("\033[92mAccuracy : ", score(yt,predictions), "\x1b[0m" )
+                print("\033[92mAccuracy : " + str(score(yt,predictions)) + "\x1b[0m" )
                 
         # saving model, saver, timestep and interval
-        lstm_model.save('/home/rqd/OPlstm/mod/my_model.h5')
-        joblib.dump(scaler,"/home/rqd/OPlstm/mod/scaler.save")
-        fichier = open("/home/rqd/OPlstm/mod/tsintr.txt", "w") 
+	os.chdir(PATH_MOD_OUTPUT)
+        lstm_model.save('my_model.h5')
+        joblib.dump(scaler,"scaler.save")
+        fichier = open("tsintr.txt", "w") 
         tsintr = fichier.write("%(timestep)i;%(interval)i"%{'timestep': timesteps, "interval": interval})
         fichier.close()
         
@@ -290,8 +308,12 @@ def run(listeChemins, pathwd): #liste chemins d'apprentissage
 
  
  # entry point
-print([e for e in os.listdir('/home/rqd/OPlstm/data_csv')])
-run([e for e in os.listdir('/home/rqd/OPlstm/data_csv')], '/home/rqd/OPlstm/data_csv')
+print([e for e in os.listdir(PATH_ENTRY)])
+
+
+if __name__ == "__main__":
+        # stuff only to run when not called via 'import' here
+        run([e for e in os.listdir(PATH_ENTRY)], PATH_ENTRY)
 
 
 

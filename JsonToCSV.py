@@ -2,7 +2,18 @@ import json
 from pprint import pprint
 import os
 import pandas as pd
+import argparse
 
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-pe","--pathEntry", type=str, help="Indicate the path where JSON file are. Example : /home/usr/entries/  ", default='.')
+parser.add_argument("-po", "--pathOutput", type=str, help="Indicate the path where output will be placed. Example : /home/usr/result/data.csv ", default='./tesst.csv')
+
+args = parser.parse_args()
+
+PATH_ENTRY = args.pathEntry
+PATH_OUTPUT = args.pathOutput
 
 node=dict()
 for i in range(3):
@@ -32,10 +43,10 @@ for i in range(3):
     node["REar"+coord]=[]
     node["LEar"+coord]=[]
 
-for e in sorted(os.listdir('.')):
+for e in sorted(os.listdir(PATH_ENTRY)):
     if e.endswith('.json'):
         print(e)
-        data = json.load(open(e))
+        data = json.load(open(PATH_ENTRY+e))
         #pprint(data["maps"][0]["id"])
         nodes_raw=data["people"][0]["pose_keypoints_2d"]
 
@@ -69,6 +80,6 @@ for e in sorted(os.listdir('.')):
         
         
         
-
+# mind the separator
 df=pd.DataFrame(node)
-df.to_csv('Data.csv',sep=';')
+df.to_csv(PATH_OUTPUT,sep=';')

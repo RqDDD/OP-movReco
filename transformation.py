@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import numpy as np
 
 def simDepth(addPerCent, listeCoef = np.arange(0,3,0.5)):
@@ -28,7 +29,7 @@ def simDepth(addPerCent, listeCoef = np.arange(0,3,0.5)):
 
 
 
-def addNoise(data, addPerCent, stdPerCent): # ajout de ligne en pourcent peut être >100 / add random gaussian noise
+def addNoise(data, addPerCent, stdPerCent): # ajout de ligne en pourcent peut être sup 100 add random gaussian noise
     '''Add a gaussian noise to each column to artificially inflate
     the learning sample and eventually improve a learning process
     mean=std(column) sigma=1'''
